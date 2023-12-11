@@ -22,6 +22,14 @@ movies = [
         "year": 20015,
         "rating": 9.8,
         "category": "Por",
+    },
+    {
+        "id":2,
+        "title": "YYY",
+        "Overview": "monos",
+        "year": 20015,
+        "rating": 9.8,
+        "category": "Por",
     }
 ]
 
@@ -34,3 +42,9 @@ def message():
 @app.get('/movies', tags=['movies'])
 def get_movies():
     return movies
+
+
+@app.get('/movie/{id}', tags=['movies'])
+def get_movie(id:int):
+    movie = list(filter(lambda x: x['id'] == id,movies))
+    return movie if len(movie) > 0 else "No hay nada que ver"
