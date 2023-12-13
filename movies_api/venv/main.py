@@ -1,9 +1,34 @@
-from fastapi import FastAPI
+from fastapi import FastAPI,Body, UploadFile, File
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
+import shutil
+import os
+import nistitl
+from typing import IO
+import base64
+from PIL import Image
+import wsq
+
 
 app = FastAPI()
 app.title = "Mi app de prueba con FastAPI"
 app.version = "0.0.1"
+
+UPLOADS_DIR = "./uploads/"
+
+if not os.path.exists(UPLOADS_DIR):
+    os.makedirs(UPLOADS_DIR)
+
+class Movie(BaseModel):
+    id: Optional[int] = None
+    title: str = Field(default="My movie", min_length=5, max_length=15)
+    Overview: str = Field(default="My overview For the movie", min_length=15, max_length=50)
+    year: int = Field(default=datetime.now().year, le=datetime.now().year)
+    rating: float
+    category: str = Field(default="My movie", min_length=5, max_length=15)
+
 
 movies = [
     {
@@ -24,7 +49,7 @@ movies = [
         "category": "Por",
     },
     {
-        "id":2,
+        "id":3,
         "title": "YYY",
         "Overview": "monos",
         "year": 20015,
@@ -48,3 +73,117 @@ def get_movies():
 def get_movie(id:int):
     movie = list(filter(lambda x: x['id'] == id,movies))
     return movie if len(movie) > 0 else "No hay nada que ver"
+
+
+    
+@app.get('/movies/', tags=['movies'])
+def get_movies_by_category(category:str, year:int):
+    return [item for item in movies if item['category'] == category]
+
+@app.post('/movies/', tags=['movies'])
+def create_movie(movie: Movie):
+    movies.append(movie)
+    return movies
+
+@app.put('/movies/{id}', tags=['movies'])
+def update_movie(id:int, movie:Movie):
+    for movie in movies:
+        if movie['id'] == id:
+            movie['title'] = movie.title
+            movie['Overview'] = movie.overview
+            movie['year'] = movie.year
+            movie['rating'] = movie.rating
+            movie['category'] = movie.category
+    return movies
+
+@app.delete('/movie/{id}', tags=['movies'])
+def delete_movie(id:int):    
+    # Eliminar elementos con 'id' dado
+     for movie in movies:
+        if movie['id'] == id:
+            movies.remove(movie)
+            return movies
+
+@app.post("/uploadNIST/")
+async def upload_nist(file: UploadFile = File(...)):
+    with open(f"{UPLOADS_DIR}{file.filename}", "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+     # Llama a la función de desempaquetado después de guardar el archivo
+    desempaquetar_archivo(UPLOADS_DIR+"/"+file.filename)
+    return {"filename": file.filename}
+
+
+def desempaquetar_archivo(file_path):
+    
+    with open(file_path, "rb") as file:
+        buffer_data = file.read()
+    
+    msg = nistitl.Message()
+    msg.parse(buffer_data)
+    
+      # --- Access type 1 record
+    for record in msg.iter(1):
+        print("Type1 content:\n",record)
+
+
+    # --- Access type 2 record
+    for record in msg.iter(2):
+        print("Type2 content:\n",record)
+
+    # --- Loop on all records of type 4
+    i=0
+    for r4 in msg.iter(4):
+        
+        i=i+1
+        
+        # Get all fields
+        all_fields = r4.unpack("!BBBBBBBBHHB")
+        imp = all_fields[0]
+        fgp = list(all_fields[1:7])
+        isr = all_fields[7]
+        width = all_fields[8]
+        height = all_fields[9]
+        gca = all_fields[10]
+        image = all_fields[11]        
+        file_exists(UPLOADS_DIR+str(i)+".wsq")
+        save_file_bytes(UPLOADS_DIR+str(i)+".wsq",image)
+        
+        img = Image.open(UPLOADS_DIR+str(i)+".wsq")   
+        img = img.convert("1") 
+        img.save(UPLOADS_DIR+str(i)+".bmp")
+        #file.close()
+        
+        print(img)
+        
+
+    # --- Loop on all records of type 10
+    i=0
+    for r10 in msg.iter(10):
+        i=i+1
+        # Used pre-defined alias
+        src = r10.SRC
+        image = r10.DATA
+        file_exists(UPLOADS_DIR+str(i)+".jpeg")
+        save_file_bytes(UPLOADS_DIR+str(i)+".jpeg",image)
+    
+    print("Done")
+    
+def file_exists(file_path: str, default_content: str = None):
+    if not os.path.exists(file_path):
+        with open(file_path, "w") as file:
+            if default_content:
+                file.write(default_content)
+            print(f"El archivo '{file_path}' ha sido creado.")
+        return True
+    else:
+        print(f"El archivo '{file_path}' ya existe.")
+        return False
+    
+def save_file_bytes(file_path: str, bytes_data: bytes):
+    with open(file_path, "wb") as file:
+        file.write(bytes_data)
+    #b64_string = base64.b64encode(bytes_data).decode('utf-8')
+    #print(b64_string)
+    print(file_path)  # Solo imprime los datos por ahora, ajusta según lo que necesites hacer con ellos
+ 

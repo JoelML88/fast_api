@@ -1,0 +1,20 @@
+python -m venv venv
+venv/Scripts/activate
+pip install fastapi
+python.exe -m pip install --upgrade pip
+pip install uvicorn
+
+#Run app
+uvicorn main:app
+
+#Cambiar puerto y auto recargar:
+
+uvicorn main:app --reload --port 5000
+
+#Ejecutar en la red:
+
+
+uvicorn main:app --reload --port 5000 --host 0.0.0.0
+
+con el siguiente sistema de ecuaciones
+
