@@ -16,5 +16,14 @@ uvicorn main:app --reload --port 5000
 
 uvicorn main:app --reload --port 5000 --host 0.0.0.0
 
-con el siguiente sistema de ecuaciones
+#Para tokens
+pip install pyjwt
+
+
+#instalar ORM
+pip install sqlalchemy
+
+
+
+
 

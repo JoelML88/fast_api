@@ -1,7 +1,12 @@
-from fastapi import FastAPI,Body, UploadFile, File
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI,Body, UploadFile, File, Path, Query,Depends, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from jwt_manager import create_token, validate_token
+from fastapi.security import HTTPBearer
+
+
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional,List
 from datetime import datetime
 import shutil
 import os
@@ -11,23 +16,51 @@ import base64
 from PIL import Image
 import wsq
 
-
 app = FastAPI()
 app.title = "Mi app de prueba con FastAPI"
 app.version = "0.0.1"
+
+
+class JWTBearer(HTTPBearer):
+    async def __call__(self, request: Request):
+        auth = await super().__call__(request)
+        data = validate_token(auth.credentials)
+        if data['email'] != "admin@gmail.com":
+            raise HTTPException(status_code= 403, detail = "Credenciales incorrectas: "+data['email'] + "Not loged")
+        
+
 
 UPLOADS_DIR = "./uploads/"
 
 if not os.path.exists(UPLOADS_DIR):
     os.makedirs(UPLOADS_DIR)
 
+class User(BaseModel):
+    email:str
+    password:str
+
 class Movie(BaseModel):
     id: Optional[int] = None
-    title: str = Field(default="My movie", min_length=5, max_length=15)
-    Overview: str = Field(default="My overview For the movie", min_length=15, max_length=50)
-    year: int = Field(default=datetime.now().year, le=datetime.now().year)
-    rating: float
-    category: str = Field(default="My movie", min_length=5, max_length=15)
+    title: str = Field(min_length=5, max_length=15)
+    overview: str = Field(min_length=15, max_length=50)
+    year: int = Field(le=datetime.now().year)
+    rating: float = Field(ge=1,le=10)
+    category: str = Field(min_length=5, max_length=15)
+    
+    model_config = {
+     "json_schema_extra": {
+            "examples": [
+                {
+                "id":1,
+                "title":"My movie",
+                "overview": "My overview For the movie",
+                "year":datetime.now().year,
+                "rating":10.0,
+                "category":"None none"
+                }
+            ]
+        }
+    }
 
 
 movies = [
@@ -44,7 +77,7 @@ movies = [
         "id":2,
         "title": "XXX",
         "Overview": "monos",
-        "year": 20015,
+        "year": 2015,
         "rating": 9.8,
         "category": "Por",
     },
@@ -52,7 +85,7 @@ movies = [
         "id":3,
         "title": "YYY",
         "Overview": "monos",
-        "year": 20015,
+        "year": 2015,
         "rating": 9.8,
         "category": "Por",
     }
@@ -61,32 +94,39 @@ movies = [
 
 @app.get('/', tags=["home"])
 
+@app.post('/login', tags=["auth"])
+def login(user:User):
+    if user.email == "admin@gmail.com" and user.password == "admin":
+        token: str = create_token(user.dict())        
+    return JSONResponse(status_code=200, content=token)
+
 def message():
     return HTMLResponse('<h1>Hey prro</h1>')
 
-@app.get('/movies', tags=['movies'])
-def get_movies():
-    return movies
+@app.get('/movies', tags=['movies'], response_model = List[Movie], status_code=200, dependencies=[Depends(JWTBearer())])
+def get_movies()->List[Movie]:
+    return JSONResponse(status_code=200,content=movies)
 
 
-@app.get('/movie/{id}', tags=['movies'])
-def get_movie(id:int):
+@app.get('/movie/{id}', tags=['movies'],  response_model = Movie, status_code=200)
+def get_movie(id:int = Path(ge=1,le=2000)) -> Movie:
     movie = list(filter(lambda x: x['id'] == id,movies))
-    return movie if len(movie) > 0 else "No hay nada que ver"
+    return JSONResponse(status_code=200,content=movie) if len(movie) > 0 else JSONResponse(status_code=404, content=[])
 
 
     
-@app.get('/movies/', tags=['movies'])
-def get_movies_by_category(category:str, year:int):
-    return [item for item in movies if item['category'] == category]
+@app.get('/movies/', tags=['movies'], response_model = List[Movie], status_code=200)
+def get_movies_by_category(category:str = Query(min_length=2, max_length=20))->List[Movie]:
+    data = [item for item in movies if item['category'] == category]
+    return JSONResponse(status_code=200, content=data)
 
-@app.post('/movies/', tags=['movies'])
-def create_movie(movie: Movie):
+@app.post('/movies/', tags=['movies'], response_model=dict, status_code = 201)
+def create_movie(movie: Movie) -> dict:
     movies.append(movie)
-    return movies
+    return JSONResponse(status_code = 201,content={"message":"Se registró correctamente"})
 
-@app.put('/movies/{id}', tags=['movies'])
-def update_movie(id:int, movie:Movie):
+@app.put('/movies/{id}', tags=['movies'], response_model=dict, status_code=200)
+def update_movie(id:int, movie:Movie) -> dict:
     for movie in movies:
         if movie['id'] == id:
             movie['title'] = movie.title
@@ -94,15 +134,16 @@ def update_movie(id:int, movie:Movie):
             movie['year'] = movie.year
             movie['rating'] = movie.rating
             movie['category'] = movie.category
-    return movies
+    return JSONResponse(status_code=200, content={"message":"Se modificó correctamente"})
 
-@app.delete('/movie/{id}', tags=['movies'])
-def delete_movie(id:int):    
+@app.delete('/movie/{id}', tags=['movies'], response_model=dict, status_code=200)
+def delete_movie(id:int) -> dict:
     # Eliminar elementos con 'id' dado
-     for movie in movies:
+    for movie in movies:
         if movie['id'] == id:
             movies.remove(movie)
-            return movies
+            return JSONResponse(status_code=200, content={"message":"Se eliminó correctamente: "+str(id)})
+    return JSONResponse(status_code=404, content={"message":"No se encontró: "+str(id)})
 
 @app.post("/uploadNIST/")
 async def upload_nist(file: UploadFile = File(...)):
