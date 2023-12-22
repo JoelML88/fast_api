@@ -1,18 +1,13 @@
-from fastapi import FastAPI,Body, UploadFile, File, Path, Query,Depends, Request, HTTPException
+from fastapi import FastAPI, UploadFile, File,Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from jwt_manager import create_token, validate_token
 
-from config.database import Session,engine,Base
-from models.movie import Movie as MovieModel
-from fastapi.encoders import jsonable_encoder
+from config.database import engine,Base
 from middlewares.error_handler import ErrorHandler
-from middlewares.JWTBearer import JWTBearer
+from routers.movie import movie_router
+from routers.user import user_router
 
 
-from pydantic import BaseModel, Field
-from typing import Optional,List
-from datetime import datetime
 import shutil
 import os
 import nistitl
@@ -26,6 +21,10 @@ app.title = "Mi app de prueba con FastAPI"
 app.version = "0.0.1"
 
 app.add_middleware(ErrorHandler)
+app.include_router(movie_router)
+app.include_router(user_router)
+
+
 
 Base.metadata.create_all(bind= engine)
 
@@ -34,142 +33,14 @@ UPLOADS_DIR = "./uploads/"
 if not os.path.exists(UPLOADS_DIR):
     os.makedirs(UPLOADS_DIR)
 
-class User(BaseModel):
-    email:str
-    password:str
-
-class Movie(BaseModel):
-    id: Optional[int] = None
-    title: str = Field(min_length=5, max_length=15)
-    overview: str = Field(min_length=15, max_length=50)
-    year: int = Field(le=datetime.now().year)
-    rating: float = Field(ge=1,le=10)
-    category: str = Field(min_length=5, max_length=15)
-    
-    model_config = {
-     "json_schema_extra": {
-            "examples": [
-                {
-                "id":1,
-                "title":"My movie",
-                "overview": "My overview For the movie",
-                "year":datetime.now().year,
-                "rating":10.0,
-                "category":"None none"
-                }
-            ]
-        }
-    }
-
-
-movies = [
-    {
-        "id":1,
-        "title": "Avatar",
-        "Overview": "monos azules peleando",
-        "year": 2009,
-        "rating": 7.8,
-        "category": "Accion",
-
-    },
-    {
-        "id":2,
-        "title": "XXX",
-        "Overview": "monos",
-        "year": 2015,
-        "rating": 9.8,
-        "category": "Por",
-    },
-    {
-        "id":3,
-        "title": "YYY",
-        "Overview": "monos",
-        "year": 2015,
-        "rating": 9.8,
-        "category": "Por",
-    }
-]
-
 
 @app.get('/', tags=["home"])
 
-@app.post('/login', tags=["auth"])
-def login(user:User):
-    if user.email == "admin@gmail.com" and user.password == "admin":
-        token: str = create_token(user.dict())        
-    return JSONResponse(status_code=200, content=token)
 
 def message():
     return HTMLResponse('<h1>Hey prro</h1>')
 
-@app.get('/movies', tags=['movies'], response_model = List[Movie], status_code=200, dependencies=[Depends(JWTBearer())])
-def get_movies()->List[Movie]:
-    db = Session()
-    result = db.query(MovieModel).all()
-    return JSONResponse(status_code=200,content = jsonable_encoder(result))
 
-
-@app.get('/movie/{id}', tags=['movies'],  response_model = Movie, status_code=200)
-def get_movie(id:int = Path(ge=1,le=2000)) -> Movie:
-    
-    db =  Session()
-    result = db.query(MovieModel).filter(MovieModel.id == id).first()    
-    #movie = list(filter(lambda x: x['id'] == id,movies))
-    if not result:
-        return JSONResponse(status_code=404, content={'message': "No encontrado"})
-    return JSONResponse(status_code=200,content = jsonable_encoder({result}))
-
-
-    
-@app.get('/movies/', tags=['movies'], response_model = List[Movie], status_code=200)
-def get_movies_by_category(category:str = Query(min_length=2, max_length=20))->List[Movie]:
-    
-    db = Session()
-    result = db.query(MovieModel).filter(MovieModel.category == category).all()
-    
-    if not result:
-        return JSONResponse(status_code=404, content={'message': "No encontrado"})
-    
-    #data = [item for item in movies if item['category'] == category]
-    return JSONResponse(status_code=200,content= jsonable_encoder(result))
-
-@app.post('/movies/', tags=['movies'], response_model=dict, status_code = 201)
-def create_movie(movie: Movie) -> dict:
-    db = Session()
-    new_movie = MovieModel(**movie.dict())
-    db.add(new_movie)
-    db.commit()
-    movies.append(movie)
-    return JSONResponse(status_code = 201,content={"message":"Se registró correctamente"})
-
-@app.put('/movies/{id}', tags=['movies'], response_model=dict, status_code=200)
-def update_movie(id:int, movie:Movie) -> dict:
-    
-    db= Session()
-    result = db.query(MovieModel).filter(MovieModel.id==id).first()
-    if not result:
-        return JSONResponse(status_code=404, content={'message': "No encontrado"})
-    
-    result.title = movie.title
-    result.overview = movie.overview
-    result.year = movie.year
-    result.rating = movie.rating
-    result.category = movie.category
-    db.commit()
-            
-    return JSONResponse(status_code=200,content= {'message': "Actualizado correctamente"})
-
-@app.delete('/movie/{id}', tags=['movies'], response_model=dict, status_code=200)
-def delete_movie(id:int) -> dict:
-    # Eliminar elementos con 'id' dado
-    db= Session()
-    result = db.query(MovieModel).filter(MovieModel.id==id).first()
-    if not result:
-        return JSONResponse(status_code=404, content={'message': "No encontrado"})
-    db.delete(result)
-    db.commit()
-    
-    return JSONResponse(status_code=200,content= {'message': "Eliminado correctamente"})
 
 @app.post("/uploadNIST/")
 async def upload_nist(file: UploadFile = File(...)):
