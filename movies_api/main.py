@@ -2,7 +2,12 @@ from fastapi import FastAPI,Body, UploadFile, File, Path, Query,Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from jwt_manager import create_token, validate_token
-from fastapi.security import HTTPBearer
+
+from config.database import Session,engine,Base
+from models.movie import Movie as MovieModel
+from fastapi.encoders import jsonable_encoder
+from middlewares.error_handler import ErrorHandler
+from middlewares.JWTBearer import JWTBearer
 
 
 from pydantic import BaseModel, Field
@@ -20,15 +25,9 @@ app = FastAPI()
 app.title = "Mi app de prueba con FastAPI"
 app.version = "0.0.1"
 
+app.add_middleware(ErrorHandler)
 
-class JWTBearer(HTTPBearer):
-    async def __call__(self, request: Request):
-        auth = await super().__call__(request)
-        data = validate_token(auth.credentials)
-        if data['email'] != "admin@gmail.com":
-            raise HTTPException(status_code= 403, detail = "Credenciales incorrectas: "+data['email'] + "Not loged")
-        
-
+Base.metadata.create_all(bind= engine)
 
 UPLOADS_DIR = "./uploads/"
 
@@ -105,45 +104,72 @@ def message():
 
 @app.get('/movies', tags=['movies'], response_model = List[Movie], status_code=200, dependencies=[Depends(JWTBearer())])
 def get_movies()->List[Movie]:
-    return JSONResponse(status_code=200,content=movies)
+    db = Session()
+    result = db.query(MovieModel).all()
+    return JSONResponse(status_code=200,content = jsonable_encoder(result))
 
 
 @app.get('/movie/{id}', tags=['movies'],  response_model = Movie, status_code=200)
 def get_movie(id:int = Path(ge=1,le=2000)) -> Movie:
-    movie = list(filter(lambda x: x['id'] == id,movies))
-    return JSONResponse(status_code=200,content=movie) if len(movie) > 0 else JSONResponse(status_code=404, content=[])
+    
+    db =  Session()
+    result = db.query(MovieModel).filter(MovieModel.id == id).first()    
+    #movie = list(filter(lambda x: x['id'] == id,movies))
+    if not result:
+        return JSONResponse(status_code=404, content={'message': "No encontrado"})
+    return JSONResponse(status_code=200,content = jsonable_encoder({result}))
 
 
     
 @app.get('/movies/', tags=['movies'], response_model = List[Movie], status_code=200)
 def get_movies_by_category(category:str = Query(min_length=2, max_length=20))->List[Movie]:
-    data = [item for item in movies if item['category'] == category]
-    return JSONResponse(status_code=200, content=data)
+    
+    db = Session()
+    result = db.query(MovieModel).filter(MovieModel.category == category).all()
+    
+    if not result:
+        return JSONResponse(status_code=404, content={'message': "No encontrado"})
+    
+    #data = [item for item in movies if item['category'] == category]
+    return JSONResponse(status_code=200,content= jsonable_encoder(result))
 
 @app.post('/movies/', tags=['movies'], response_model=dict, status_code = 201)
 def create_movie(movie: Movie) -> dict:
+    db = Session()
+    new_movie = MovieModel(**movie.dict())
+    db.add(new_movie)
+    db.commit()
     movies.append(movie)
     return JSONResponse(status_code = 201,content={"message":"Se registró correctamente"})
 
 @app.put('/movies/{id}', tags=['movies'], response_model=dict, status_code=200)
 def update_movie(id:int, movie:Movie) -> dict:
-    for movie in movies:
-        if movie['id'] == id:
-            movie['title'] = movie.title
-            movie['Overview'] = movie.overview
-            movie['year'] = movie.year
-            movie['rating'] = movie.rating
-            movie['category'] = movie.category
-    return JSONResponse(status_code=200, content={"message":"Se modificó correctamente"})
+    
+    db= Session()
+    result = db.query(MovieModel).filter(MovieModel.id==id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={'message': "No encontrado"})
+    
+    result.title = movie.title
+    result.overview = movie.overview
+    result.year = movie.year
+    result.rating = movie.rating
+    result.category = movie.category
+    db.commit()
+            
+    return JSONResponse(status_code=200,content= {'message': "Actualizado correctamente"})
 
 @app.delete('/movie/{id}', tags=['movies'], response_model=dict, status_code=200)
 def delete_movie(id:int) -> dict:
     # Eliminar elementos con 'id' dado
-    for movie in movies:
-        if movie['id'] == id:
-            movies.remove(movie)
-            return JSONResponse(status_code=200, content={"message":"Se eliminó correctamente: "+str(id)})
-    return JSONResponse(status_code=404, content={"message":"No se encontró: "+str(id)})
+    db= Session()
+    result = db.query(MovieModel).filter(MovieModel.id==id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={'message': "No encontrado"})
+    db.delete(result)
+    db.commit()
+    
+    return JSONResponse(status_code=200,content= {'message': "Eliminado correctamente"})
 
 @app.post("/uploadNIST/")
 async def upload_nist(file: UploadFile = File(...)):
